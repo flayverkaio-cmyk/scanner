@@ -11,13 +11,15 @@ pcall(function()
     vim:SendKeyEvent(false, Enum.KeyCode.F9, false, game)
 end)
 
--- ==================== MULTI-INSTÂNCIA (FORTE - NUNCA REMOVA) ====================
+-- ==================== MULTI-INSTÂNCIA COM JOB ID DIFERENTE ====================
 local ACCOUNT_SLOT = 1        -- <<< MUDE PARA 2, 3, 4, 5... EM CADA ROBLOX !!!
 local DELAY_OFFSET = (ACCOUNT_SLOT - 1) * 9
 
+print("==============================================")
 print("Players: " .. tostring(#Players:GetPlayers()))
 print("[MULTI] Slot: " .. ACCOUNT_SLOT .. " | Delay: " .. DELAY_OFFSET .. "s")
 print("[JOB ID] Atual: " .. tostring(game.JobId))
+print("==============================================")
 
 -- WEBHOOKS
 local WEBHOOK_BRAINROTS = "https://discord.com/api/webhooks/1493358563048034412/kk_wyTs7WdBDLF1xiHyPwuQo9Vv15Ss9cSSaP6TjHygW-ffiASHnZg7ZfxvjFsB9o4NY"
@@ -54,6 +56,7 @@ do
     if ok_sh and Shared then AnimalsShared = tryLoad(Shared, "Animals") end
 end
 
+-- Funções básicas
 local function parseValue(text)
     if not text then return 0 end
     local clean = tostring(text):gsub("[%$%s%,%/s%/m%/h]", "")
@@ -172,37 +175,6 @@ local function scan()
     return best.name, best.value, listText, bestOwner
 end
 
-local function sendToFirebase(itemName, itemValue, ownerName)
-    local count = 0
-    local ok, res = pcall(function() return http_request({Url = FIREBASE_URL, Method = "GET", Headers = {["Content-Type"] = "application/json"}}) end)
-    if ok and res and res.Body then
-        local okD, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
-        if okD and type(data) == "table" then
-            for _ in pairs(data) do count = count + 1 end
-        end
-    end
-    if count >= MAX_ENTRIES then
-        pcall(function() http_request({Url = FIREBASE_URL, Method = "DELETE", Headers = {["Content-Type"] = "application/json"}}) end)
-    end
-    pcall(function()
-        http_request({
-            Url = FIREBASE_URL, Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode({
-                Item = tostring(itemName or "Unknown"),
-                Value = tonumber(itemValue) or 0,
-                ValueRaw = formatValue(tonumber(itemValue) or 0),
-                PlaceId = PLACE_ID,
-                JobId = CURRENT_JOB,
-                Timestamp = os.time(),
-                Date = os.date("%d/%m/%Y %H:%M:%S"),
-                Players = #Players:GetPlayers(),
-                Owner = ownerName or "Unknown",
-            })
-        })
-    end)
-end
-
 local function getBrainrotImage(name)
     local ok, result = pcall(function()
         local url = "https://stealabrainrot.fandom.com/api.php?action=query&titles=" .. HttpService:UrlEncode(name) .. "&prop=pageimages&piprop=original&format=json"
@@ -249,14 +221,12 @@ local function sendWebhook(url, name, value, list, showFields, footer, ownerName
     end)
 end
 
--- ==================== EXECUÇÃO ====================
+-- ==================== SCAN ====================
 print("[Scan] Buscando brainrot bom...")
-
 local name, value, list, ownerName = scan()
 if name then
-    print("✅ ENCONTRADO: " .. name .. " | $" .. formatValue(value) .. "/s | Owner: " .. tostring(ownerName))
+    print("✅ ENCONTRADO: " .. name .. " | $" .. formatValue(value) .. "/s")
     sendWebhook(WEBHOOK_BRAINROTS, name, value, list, true, "Beta Notify", ownerName)
-    sendToFirebase(name, value, ownerName)
 
     if value >= 100e6 then
         sendWebhook(WEBHOOK_ULTRA, name, value, list, false, "Beta Notify UltraLights")
@@ -266,21 +236,26 @@ if name then
         sendWebhook(WEBHOOK_MID, name, value, list, false, "Beta Notify MidLights")
     end
 else
-    print("[Scan] Nenhum brainrot bom encontrado acima do mínimo.")
+    print("[Scan] Nenhum brainrot bom encontrado.")
 end
 
--- ==================== HOP COM JOB ID DIFERENTE FORTE ====================
-task.wait(7)
-print("[Hop] Iniciando após 7 segundos... Slot " .. ACCOUNT_SLOT)
+-- ==================== COUNTDOWN 6 SEGUNDOS ====================
+print("[Hop] Aguardando 6 segundos antes de iniciar o hop...")
+for i = 6, 1, -1 do
+    print("[Hop] Iniciando em " .. i .. " segundos... (Slot " .. ACCOUNT_SLOT .. ")")
+    task.wait(1)
+end
+print("[Hop] INICIANDO AGORA - Slot " .. ACCOUNT_SLOT)
 
+-- ==================== HOP COM JOB ID DIFERENTE FORTE ====================
 local MAX_PLAYERS = 6
 local MAX_PING = 150
 local HOP_WAIT = 8
 local visitedJobs = { [CURRENT_JOB] = true }
 local lp = Players.LocalPlayer
 
--- Seed muito forte por slot
-math.randomseed(os.time() * ACCOUNT_SLOT * 1234567 + ACCOUNT_SLOT * 987654)
+-- Seed EXTREMAMENTE FORTE por instância
+math.randomseed(os.time() + ACCOUNT_SLOT * 987654321 + ACCOUNT_SLOT * 123456789)
 
 local function getNewJobId()
     local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", PLACE_ID)
@@ -308,7 +283,7 @@ local function getNewJobId()
         end
     end
 
-    -- Shuffle forte + bias por ACCOUNT_SLOT
+    -- Shuffle + Bias forte por slot
     for i = #filtered, 2, -1 do
         local j = math.random(i)
         filtered[i], filtered[j] = filtered[j], filtered[i]
@@ -340,7 +315,7 @@ local function serverHop()
                 print("[Hop] Slot " .. ACCOUNT_SLOT .. " Teleportando para Job ID: " .. newJobId)
                 pcall(function() TeleportService:TeleportToPlaceInstance(PLACE_ID, newJobId, lp) end)
             else
-                print("[Hop] Slot " .. ACCOUNT_SLOT .. " - Sem Job ID novo, teleport simples")
+                print("[Hop] Slot " .. ACCOUNT_SLOT .. " - Sem novo Job ID, teleport simples")
                 pcall(function() TeleportService:Teleport(PLACE_ID, lp) end)
             end
             task.wait(HOP_WAIT + math.random(3,7))
