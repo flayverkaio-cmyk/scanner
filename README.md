@@ -11,12 +11,13 @@ pcall(function()
     vim:SendKeyEvent(false, Enum.KeyCode.F9, false, game)
 end)
 
--- ==================== MULTI-INSTÂNCIA ====================
-local ACCOUNT_SLOT = 1        -- MUDE PARA 2, 3, 4, 5... EM CADA ROBLOX !!!
+-- ==================== MULTI-INSTÂNCIA (FORTE - NUNCA REMOVA) ====================
+local ACCOUNT_SLOT = 1        -- <<< MUDE PARA 2, 3, 4, 5... EM CADA ROBLOX !!!
 local DELAY_OFFSET = (ACCOUNT_SLOT - 1) * 9
 
 print("Players: " .. tostring(#Players:GetPlayers()))
 print("[MULTI] Slot: " .. ACCOUNT_SLOT .. " | Delay: " .. DELAY_OFFSET .. "s")
+print("[JOB ID] Atual: " .. tostring(game.JobId))
 
 -- WEBHOOKS
 local WEBHOOK_BRAINROTS = "https://discord.com/api/webhooks/1493358563048034412/kk_wyTs7WdBDLF1xiHyPwuQo9Vv15Ss9cSSaP6TjHygW-ffiASHnZg7ZfxvjFsB9o4NY"
@@ -53,25 +54,6 @@ do
     if ok_sh and Shared then AnimalsShared = tryLoad(Shared, "Animals") end
 end
 
--- ==================== ANTI-SPAM (NOVO SISTEMA) ====================
-local lastSentName = ""
-local lastSentValue = 0
-
-local function shouldSendNotification(name, value)
-    if name ~= lastSentName then
-        return true  -- Item diferente = envia
-    elseif value > lastSentValue + 500000 then  -- Mesmo item, mas valor aumentou bastante
-        return true
-    end
-    return false
-end
-
-local function updateLastSent(name, value)
-    lastSentName = name
-    lastSentValue = value
-end
-
--- Funções básicas
 local function parseValue(text)
     if not text then return 0 end
     local clean = tostring(text):gsub("[%$%s%,%/s%/m%/h]", "")
@@ -136,7 +118,6 @@ local function scan()
     local items = {}
     local bestRejectedName = nil
     local bestRejectedValue = -1
-    
     local function tryInsert(itemName, val, ownerName)
         if isBlacklisted(itemName) then return end
         if val >= MIN_VALUE or isTargeted(itemName) then
@@ -146,8 +127,6 @@ local function scan()
             bestRejectedName = itemName
         end
     end
-
-    -- Scan principal
     if Synchronizer then
         local plots = Workspace:FindFirstChild("Plots")
         if plots then
@@ -163,14 +142,13 @@ local function scan()
                         local animalIndex = animalData.Index
                         if not animalIndex then continue end
                         local itemName = animalIndex
-                        if AnimalsData and AnimalsData[animalIndex] and AnimalsData[animalIndex].DisplayName then 
-                            itemName = AnimalsData[animalIndex].DisplayName 
+                        if AnimalsData then
+                            local info = AnimalsData[animalIndex]
+                            if info and info.DisplayName then itemName = info.DisplayName end
                         end
                         local val = 0
                         if AnimalsShared then
-                            local okG, gen = pcall(function()
-                                return AnimalsShared:GetGeneration(animalIndex, animalData.Mutation, animalData.Traits, nil)
-                            end)
+                            local okG, gen = pcall(function() return AnimalsShared:GetGeneration(animalIndex, animalData.Mutation, animalData.Traits, nil) end)
                             if okG and type(gen) == "number" then val = gen end
                         end
                         tryInsert(itemName, val, ownerName)
@@ -179,9 +157,7 @@ local function scan()
             end
         end
     end
-
     if #items == 0 then return nil end
-
     table.sort(items, function(a, b) return a.value > b.value end)
     local best = items[1]
     local bestOwner = best.owner
@@ -196,9 +172,54 @@ local function scan()
     return best.name, best.value, listText, bestOwner
 end
 
+local function sendToFirebase(itemName, itemValue, ownerName)
+    local count = 0
+    local ok, res = pcall(function() return http_request({Url = FIREBASE_URL, Method = "GET", Headers = {["Content-Type"] = "application/json"}}) end)
+    if ok and res and res.Body then
+        local okD, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if okD and type(data) == "table" then
+            for _ in pairs(data) do count = count + 1 end
+        end
+    end
+    if count >= MAX_ENTRIES then
+        pcall(function() http_request({Url = FIREBASE_URL, Method = "DELETE", Headers = {["Content-Type"] = "application/json"}}) end)
+    end
+    pcall(function()
+        http_request({
+            Url = FIREBASE_URL, Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode({
+                Item = tostring(itemName or "Unknown"),
+                Value = tonumber(itemValue) or 0,
+                ValueRaw = formatValue(tonumber(itemValue) or 0),
+                PlaceId = PLACE_ID,
+                JobId = CURRENT_JOB,
+                Timestamp = os.time(),
+                Date = os.date("%d/%m/%Y %H:%M:%S"),
+                Players = #Players:GetPlayers(),
+                Owner = ownerName or "Unknown",
+            })
+        })
+    end)
+end
+
+local function getBrainrotImage(name)
+    local ok, result = pcall(function()
+        local url = "https://stealabrainrot.fandom.com/api.php?action=query&titles=" .. HttpService:UrlEncode(name) .. "&prop=pageimages&piprop=original&format=json"
+        local resp = http_request({Url = url, Method = "GET"})
+        if resp and resp.StatusCode == 200 then
+            local data = HttpService:JSONDecode(resp.Body)
+            for _, page in pairs(data.query.pages) do
+                if page.original and page.original.source then return page.original.source end
+            end
+        end
+    end)
+    return ok and result or nil
+end
+
 local function sendWebhook(url, name, value, list, showFields, footer, ownerName)
     if not url or url == "" then return end
-    local imageUrl = getBrainrotImage(name) -- (função mantida)
+    local imageUrl = getBrainrotImage(name)
     local joinLink = "https://liphyrdev.github.io/notifier/?placeId=" .. PLACE_ID .. "&gameInstanceId=" .. CURRENT_JOB
 
     local embed = {
@@ -228,35 +249,27 @@ local function sendWebhook(url, name, value, list, showFields, footer, ownerName
     end)
 end
 
--- ==================== SCANNER EM LOOP (ANTI-SPAM) ====================
-print("[Scanner] Rodando em loop contínuo com anti-spam...")
+-- ==================== EXECUÇÃO ====================
+print("[Scan] Buscando brainrot bom...")
 
-task.spawn(function()
-    while true do
-        local name, value, list, ownerName = scan()
-        
-        if name and shouldSendNotification(name, value) then
-            print("✅ NOVO MELHOR: " .. name .. " | $" .. formatValue(value) .. "/s")
-            
-            sendWebhook(WEBHOOK_BRAINROTS, name, value, list, true, "Beta Notify", ownerName)
-            sendToFirebase(name, value, ownerName)
+local name, value, list, ownerName = scan()
+if name then
+    print("✅ ENCONTRADO: " .. name .. " | $" .. formatValue(value) .. "/s | Owner: " .. tostring(ownerName))
+    sendWebhook(WEBHOOK_BRAINROTS, name, value, list, true, "Beta Notify", ownerName)
+    sendToFirebase(name, value, ownerName)
 
-            if value >= 100e6 then
-                sendWebhook(WEBHOOK_ULTRA, name, value, list, false, "Beta Notify UltraLights")
-            elseif value >= 50e6 then
-                sendWebhook(WEBHOOK_HIGH, name, value, list, false, "Beta Notify HighLights")
-            elseif value >= 10e6 then
-                sendWebhook(WEBHOOK_MID, name, value, list, false, "Beta Notify MidLights")
-            end
-
-            updateLastSent(name, value)
-        end
-        
-        task.wait(3)  -- Escaneia a cada 3 segundos
+    if value >= 100e6 then
+        sendWebhook(WEBHOOK_ULTRA, name, value, list, false, "Beta Notify UltraLights")
+    elseif value >= 50e6 then
+        sendWebhook(WEBHOOK_HIGH, name, value, list, false, "Beta Notify HighLights")
+    elseif value >= 10e6 then
+        sendWebhook(WEBHOOK_MID, name, value, list, false, "Beta Notify MidLights")
     end
-end)
+else
+    print("[Scan] Nenhum brainrot bom encontrado acima do mínimo.")
+end
 
--- ==================== HOP (inicia após 7 segundos) ====================
+-- ==================== HOP COM JOB ID DIFERENTE FORTE ====================
 task.wait(7)
 print("[Hop] Iniciando após 7 segundos... Slot " .. ACCOUNT_SLOT)
 
@@ -266,10 +279,10 @@ local HOP_WAIT = 8
 local visitedJobs = { [CURRENT_JOB] = true }
 local lp = Players.LocalPlayer
 
-math.randomseed(os.time() * ACCOUNT_SLOT * 999999 + ACCOUNT_SLOT * 137)
+-- Seed muito forte por slot
+math.randomseed(os.time() * ACCOUNT_SLOT * 1234567 + ACCOUNT_SLOT * 987654)
 
 local function getNewJobId()
-    -- (função hop mantida igual à anterior)
     local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", PLACE_ID)
     local ok, res = pcall(function() return http_request({Url = url, Method = "GET", Headers = {["Accept"] = "application/json"}}) end)
     if not ok or not res then return nil end
@@ -295,6 +308,7 @@ local function getNewJobId()
         end
     end
 
+    -- Shuffle forte + bias por ACCOUNT_SLOT
     for i = #filtered, 2, -1 do
         local j = math.random(i)
         filtered[i], filtered[j] = filtered[j], filtered[i]
@@ -308,10 +322,12 @@ local function getNewJobId()
         local jid = tostring(srv.id or "")
         if jid ~= "" and jid ~= CURRENT_JOB and not visitedJobs[jid] then
             visitedJobs[jid] = true
+            print("[Hop] Slot " .. ACCOUNT_SLOT .. " → Novo Job ID: " .. jid)
             return jid
         end
     end
 
+    print("[Hop] Slot " .. ACCOUNT_SLOT .. " - Resetando lista de jobs...")
     visitedJobs = { [CURRENT_JOB] = true }
     return nil
 end
@@ -321,8 +337,10 @@ local function serverHop()
         while true do
             local newJobId = getNewJobId()
             if newJobId then
+                print("[Hop] Slot " .. ACCOUNT_SLOT .. " Teleportando para Job ID: " .. newJobId)
                 pcall(function() TeleportService:TeleportToPlaceInstance(PLACE_ID, newJobId, lp) end)
             else
+                print("[Hop] Slot " .. ACCOUNT_SLOT .. " - Sem Job ID novo, teleport simples")
                 pcall(function() TeleportService:Teleport(PLACE_ID, lp) end)
             end
             task.wait(HOP_WAIT + math.random(3,7))
