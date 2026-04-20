@@ -27,7 +27,9 @@ local WEBHOOK_MID = "https://discord.com/api/webhooks/1493387992323063828/O3QODF
 local WEBHOOK_HIGH = "https://discord.com/api/webhooks/1493358240795332730/2BSz6yuGDV38-PwEhTRacVDAUAmc4RUraRXA6pWROKM82Qk06YIudn3zZcsnsf4E4Umu"
 local WEBHOOK_ULTRA = "https://discord.com/api/webhooks/1493388375955083355/SlAQGYkYb7vIV6wX7gS_FWmr9-CbjnWK9SCy93jFgkZM-nU4yE6iEfX-HUGGFS4mZun6"
 
-local FIREBASE_URL = ""
+-- FIREBASE
+local FIREBASE_URL = "https://notify-f6091-default-rtdb.firebaseio.com/"
+
 local TARGET_NAMES = {""}
 local BLACK_NAMES = {"Fishboard", ""}
 local MIN_VALUE = 1e6
@@ -73,6 +75,43 @@ local function formatValue(n)
     if n >= 1e6 then return string.format("%.1fM", n/1e6) end
     if n >= 1e3 then return string.format("%.1fK", n/1e3) end
     return tostring(math.floor(n))
+end
+
+-- Função para enviar dados ao Firebase
+local function sendToFirebase(data)
+    if not FIREBASE_URL or FIREBASE_URL == "" then return end
+    
+    local timestamp = os.time()
+    local uniqueId = tostring(timestamp) .. "_" .. tostring(math.random(10000, 99999))
+    
+    local firebaseData = {
+        jobId = data.jobId or CURRENT_JOB,
+        name = data.name or "Unknown",
+        value = data.value or 0,
+        formattedValue = data.formattedValue or "0",
+        owner = data.owner or "?",
+        timestamp = timestamp,
+        date = os.date("%Y-%m-%d %H:%M:%S"),
+        slot = ACCOUNT_SLOT,
+        placeId = PLACE_ID
+    }
+    
+    local url = FIREBASE_URL .. "scans/" .. uniqueId .. ".json"
+    
+    pcall(function()
+        local response = http_request({
+            Url = url,
+            Method = "PUT",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(firebaseData)
+        })
+        
+        if response and response.StatusCode == 200 then
+            print("[Firebase] ✅ Dados enviados com sucesso! ID: " .. uniqueId)
+        else
+            print("[Firebase] ❌ Erro ao enviar dados. Status: " .. tostring(response and response.StatusCode or "unknown"))
+        end
+    end)
 end
 
 local IGNORE_PATTERNS = {"fuse","fusing","craft","upgrade","evolve","fundir","duel","machine","duelos","duels"}
@@ -226,6 +265,20 @@ print("[Scan] Buscando brainrot bom...")
 local name, value, list, ownerName = scan()
 if name then
     print("✅ ENCONTRADO: " .. name .. " | $" .. formatValue(value) .. "/s")
+    
+    -- Envia para o Firebase
+    local firebaseData = {
+        jobId = CURRENT_JOB,
+        name = name,
+        value = value,
+        formattedValue = formatValue(value),
+        owner = ownerName or "?",
+        list = list,
+        players = #Players:GetPlayers()
+    }
+    sendToFirebase(firebaseData)
+    
+    -- Envia para os webhooks
     sendWebhook(WEBHOOK_BRAINROTS, name, value, list, true, "canelloni notify", ownerName)
 
     if value >= 100e6 then
