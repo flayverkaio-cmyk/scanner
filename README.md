@@ -31,7 +31,7 @@ local FIREBASE_URL = ""
 local TARGET_NAMES = {""}
 local BLACK_NAMES = {"Fishboard", ""}
 local MIN_VALUE = 1e6
-local NOTIFIER_NAME = "Beta Notify"
+local NOTIFIER_NAME = "canelloni notify"
 
 local CURRENT_JOB = tostring(game.JobId)
 local PLACE_ID = game.PlaceId
@@ -197,9 +197,9 @@ local function sendWebhook(url, name, value, list, showFields, footer, ownerName
     local embed = {
         title = "1x " .. name .. " $" .. formatValue(value) .. "/s",
         description = "**Brainrots:**\n```" .. (list or "") .. "```",
-        color = 0x9B59B6,
+        color = 0xFFD700,
         thumbnail = imageUrl and {url = imageUrl} or nil,
-        footer = {text = footer or "Beta Notify"},
+        footer = {text = footer or "canelloni notify"},
         timestamp = DateTime.now():ToIsoDate(),
     }
 
@@ -226,14 +226,14 @@ print("[Scan] Buscando brainrot bom...")
 local name, value, list, ownerName = scan()
 if name then
     print("✅ ENCONTRADO: " .. name .. " | $" .. formatValue(value) .. "/s")
-    sendWebhook(WEBHOOK_BRAINROTS, name, value, list, true, "Beta Notify", ownerName)
+    sendWebhook(WEBHOOK_BRAINROTS, name, value, list, true, "canelloni notify", ownerName)
 
     if value >= 100e6 then
-        sendWebhook(WEBHOOK_ULTRA, name, value, list, false, "Beta Notify UltraLights")
+        sendWebhook(WEBHOOK_ULTRA, name, value, list, false, "canelloni notify UltraLights")
     elseif value >= 50e6 then
-        sendWebhook(WEBHOOK_HIGH, name, value, list, false, "Beta Notify HighLights")
+        sendWebhook(WEBHOOK_HIGH, name, value, list, false, "canelloni notify HighLights")
     elseif value >= 10e6 then
-        sendWebhook(WEBHOOK_MID, name, value, list, false, "Beta Notify MidLights")
+        sendWebhook(WEBHOOK_MID, name, value, list, false, "canelloni notify MidLights")
     end
 else
     print("[Scan] Nenhum brainrot bom encontrado.")
@@ -315,8 +315,8 @@ local function serverHop()
                 print("[Hop] Slot " .. ACCOUNT_SLOT .. " Teleportando para Job ID: " .. newJobId)
                 pcall(function() TeleportService:TeleportToPlaceInstance(PLACE_ID, newJobId, lp) end)
             else
-                print("[Hop] Slot " .. ACCOUNT_SLOT .. " - Sem novo Job ID, teleport simples")
-                pcall(function() TeleportService:Teleport(PLACE_ID, lp) end)
+                print("[Hop] Slot " .. ACCOUNT_SLOT .. " - Aguardando e tentando novamente...")
+                task.wait(5)
             end
             task.wait(HOP_WAIT + math.random(3,7))
         end
